@@ -347,8 +347,3 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
 ```
 
 
-
-
-### 📦 **Plugin folder structure with autoloading**  
-
-Just tell me what you want to build next.
