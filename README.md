@@ -411,10 +411,4 @@ GROUP BY contestant_id;
   - Enable/disable overwrite of ballots
   - Enable logging
 
----
 
-If you’d like, next I can:
-
-- Draft **sample PHP code** for the WordPress plugin (REST routes + tally logic).
-- Draft **sample Flutter code** for the ballot screen and API client.
-- Design a **minimal database migration script** for the custom tables.
