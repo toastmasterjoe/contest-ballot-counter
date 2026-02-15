@@ -1,3 +1,4 @@
+```
 CREATE TABLE wp_tm_contests (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     name VARCHAR(255) NOT NULL,
@@ -6,6 +7,7 @@ CREATE TABLE wp_tm_contests (
     status VARCHAR(20) NOT NULL DEFAULT 'draft',
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 
 CREATE TABLE wp_tm_contestants (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -51,3 +53,4 @@ CREATE TABLE wp_tm_tiebreaker_ballots (
     KEY contest_id (contest_id),
     KEY judge_id (judge_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
