@@ -1,22 +1,9 @@
-The **expanded version** of the plugin skeleton **includes full tally logic in PHP**, while keeping everything clean, modular, and production‑ready.
-
-This file contains you:
-
-1. **WordPress plugin skeleton (rewritten + tally logic added)**
 
 ---
 
-# ✅ **1. WORDPRESS PLUGIN — FULL SKELETON WITH TALLY LOGIC**
+# ✅ **UNIFIED WORDPRESS PLUGIN (FULL SKELETON + ALL ENDPOINTS + TALLY LOGIC)**
 
-Below is a complete plugin structure with:
-
-- REST routes  
-- Ballot submission  
-- Tiebreaker submission  
-- **Full tally + tie‑breaking logic**  
-- Purge ballots  
-
-This is still a *skeleton*, but now includes the **actual ranking algorithm**.
+This is the complete, merged version.
 
 ---
 
@@ -26,8 +13,8 @@ This is still a *skeleton*, but now includes the **actual ranking algorithm**.
 <?php
 /**
  * Plugin Name: TM Contest Ballots
- * Description: REST backend for Toastmasters contest ballots.
- * Version: 0.2.0
+ * Description: REST backend for Toastmasters contest ballots (judges, tiebreakers, tally, purge).
+ * Version: 1.0.0
  * Author: Your Name
  */
 
@@ -56,9 +43,8 @@ new TM_Contest_Ballots_Plugin();
 
 ---
 
-# **includes/class-tm-contest-rest-controller.php**
-
-This is where the **tally logic** lives.
+# **includes/class-tm-contest-rest-controller.php**  
+### ⭐ This version includes ALL endpoints + tally logic.
 
 ```php
 <?php
@@ -71,14 +57,31 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
 
     public function register_routes() {
 
-        register_rest_route($this->namespace, '/contests/(?P<id>\d+)/results', [
+        /* -----------------------------
+         * Contest list for judge
+         * ----------------------------- */
+        register_rest_route($this->namespace, '/contests', [
             [
                 'methods'  => WP_REST_Server::READABLE,
-                'callback' => [$this, 'get_results'],
-                'permission_callback' => [$this, 'permissions_admin'],
+                'callback' => [$this, 'get_contests'],
+                'permission_callback' => [$this, 'permissions_judge'],
             ],
         ]);
 
+        /* -----------------------------
+         * Contestants for contest
+         * ----------------------------- */
+        register_rest_route($this->namespace, '/contests/(?P<id>\d+)/contestants', [
+            [
+                'methods'  => WP_REST_Server::READABLE,
+                'callback' => [$this, 'get_contestants'],
+                'permission_callback' => [$this, 'permissions_judge'],
+            ],
+        ]);
+
+        /* -----------------------------
+         * Submit standard ballot
+         * ----------------------------- */
         register_rest_route($this->namespace, '/ballot', [
             [
                 'methods'  => WP_REST_Server::CREATABLE,
@@ -87,6 +90,9 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             ],
         ]);
 
+        /* -----------------------------
+         * Submit tiebreaker ballot
+         * ----------------------------- */
         register_rest_route($this->namespace, '/tiebreaker', [
             [
                 'methods'  => WP_REST_Server::CREATABLE,
@@ -95,6 +101,20 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             ],
         ]);
 
+        /* -----------------------------
+         * Results (with tally + tiebreak)
+         * ----------------------------- */
+        register_rest_route($this->namespace, '/contests/(?P<id>\d+)/results', [
+            [
+                'methods'  => WP_REST_Server::READABLE,
+                'callback' => [$this, 'get_results'],
+                'permission_callback' => [$this, 'permissions_admin'],
+            ],
+        ]);
+
+        /* -----------------------------
+         * Purge ballots
+         * ----------------------------- */
         register_rest_route($this->namespace, '/contests/(?P<id>\d+)/purge', [
             [
                 'methods'  => WP_REST_Server::CREATABLE,
@@ -103,6 +123,10 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             ],
         ]);
     }
+
+    /* ---------------------------------------------------------
+     * PERMISSIONS
+     * --------------------------------------------------------- */
 
     public function permissions_judge() {
         return is_user_logged_in();
@@ -113,7 +137,49 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
     }
 
     /* ---------------------------------------------------------
-     * BALLOT SUBMISSION
+     * ENDPOINT: GET CONTESTS FOR JUDGE
+     * --------------------------------------------------------- */
+
+    public function get_contests(WP_REST_Request $request) {
+        global $wpdb;
+
+        $user_id = get_current_user_id();
+        $table = $wpdb->prefix . 'tm_judges';
+        $contest_table = $wpdb->prefix . 'tm_contests';
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("
+                SELECT c.id, c.name, c.type, j.is_tiebreaker
+                FROM $table j
+                JOIN $contest_table c ON c.id = j.contest_id
+                WHERE j.wp_user_id = %d
+            ", $user_id),
+            ARRAY_A
+        );
+
+        return $rows ?: [];
+    }
+
+    /* ---------------------------------------------------------
+     * ENDPOINT: GET CONTESTANTS
+     * --------------------------------------------------------- */
+
+    public function get_contestants(WP_REST_Request $request) {
+        global $wpdb;
+
+        $contest_id = intval($request['id']);
+        $table = $wpdb->prefix . 'tm_contestants';
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT id, name, speaking_order FROM $table WHERE contest_id = %d ORDER BY speaking_order ASC", $contest_id),
+            ARRAY_A
+        );
+
+        return $rows ?: [];
+    }
+
+    /* ---------------------------------------------------------
+     * ENDPOINT: SUBMIT BALLOT
      * --------------------------------------------------------- */
 
     public function submit_ballot(WP_REST_Request $request) {
@@ -145,6 +211,10 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
         return ['status' => 'ok', 'message' => 'Ballot submitted'];
     }
 
+    /* ---------------------------------------------------------
+     * ENDPOINT: SUBMIT TIEBREAKER
+     * --------------------------------------------------------- */
+
     public function submit_tiebreaker(WP_REST_Request $request) {
         global $wpdb;
 
@@ -169,7 +239,7 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
     }
 
     /* ---------------------------------------------------------
-     * TALLY LOGIC
+     * ENDPOINT: GET RESULTS (WITH TALLY + TIEBREAK)
      * --------------------------------------------------------- */
 
     public function get_results(WP_REST_Request $request) {
@@ -177,13 +247,11 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
 
         $contest_id = intval($request['id']);
 
-        $ballots_table = $wpdb->prefix . 'tm_ballots';
         $contestants_table = $wpdb->prefix . 'tm_contestants';
+        $ballots_table = $wpdb->prefix . 'tm_ballots';
         $tiebreaker_table = $wpdb->prefix . 'tm_tiebreaker_ballots';
 
-        /* ---------------------------------------------
-         * 1. Load contestants
-         * --------------------------------------------- */
+        /* 1. Load contestants */
         $contestants = $wpdb->get_results(
             $wpdb->prepare("SELECT id, name FROM $contestants_table WHERE contest_id = %d", $contest_id),
             ARRAY_A
@@ -193,11 +261,7 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             return new WP_Error('no_contestants', 'No contestants found.', ['status' => 404]);
         }
 
-        $contestant_ids = wp_list_pluck($contestants, 'id');
-
-        /* ---------------------------------------------
-         * 2. Initialize score array
-         * --------------------------------------------- */
+        /* 2. Initialize scores */
         $scores = [];
         foreach ($contestants as $c) {
             $scores[$c['id']] = [
@@ -208,9 +272,7 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             ];
         }
 
-        /* ---------------------------------------------
-         * 3. Aggregate judge ballots
-         * --------------------------------------------- */
+        /* 3. Aggregate ballots */
         $ballots = $wpdb->get_results(
             $wpdb->prepare("SELECT * FROM $ballots_table WHERE contest_id = %d", $contest_id),
             ARRAY_A
@@ -222,16 +284,10 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             $scores[$b['rank_3']]['points'] += 1;
         }
 
-        /* ---------------------------------------------
-         * 4. Sort by points DESC
-         * --------------------------------------------- */
-        usort($scores, function($a, $b) {
-            return $b['points'] <=> $a['points'];
-        });
+        /* 4. Sort by points */
+        usort($scores, fn($a, $b) => $b['points'] <=> $a['points']);
 
-        /* ---------------------------------------------
-         * 5. Detect ties
-         * --------------------------------------------- */
+        /* 5. Apply tiebreaker if needed */
         $tiebreaker = $wpdb->get_row(
             $wpdb->prepare("SELECT ranking_json FROM $tiebreaker_table WHERE contest_id = %d", $contest_id),
             ARRAY_A
@@ -240,13 +296,11 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
         if ($tiebreaker) {
             $ranking = json_decode($tiebreaker['ranking_json'], true);
 
-            // Build lookup: contestant_id => ranking index
             $rank_index = [];
             foreach ($ranking as $i => $cid) {
                 $rank_index[$cid] = $i;
             }
 
-            // Apply tiebreaker
             for ($i = 0; $i < count($scores) - 1; $i++) {
                 for ($j = $i + 1; $j < count($scores); $j++) {
                     if ($scores[$i]['points'] === $scores[$j]['points']) {
@@ -254,7 +308,6 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
                         $cidB = $scores[$j]['id'];
 
                         if ($rank_index[$cidA] > $rank_index[$cidB]) {
-                            // Swap
                             $tmp = $scores[$i];
                             $scores[$i] = $scores[$j];
                             $scores[$j] = $tmp;
@@ -267,9 +320,7 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
             }
         }
 
-        /* ---------------------------------------------
-         * 6. Assign final ranks
-         * --------------------------------------------- */
+        /* 6. Assign final ranks */
         $rank = 1;
         foreach ($scores as &$s) {
             $s['rank'] = $rank++;
@@ -279,7 +330,7 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
     }
 
     /* ---------------------------------------------------------
-     * PURGE BALLOTS
+     * ENDPOINT: PURGE BALLOTS
      * --------------------------------------------------------- */
 
     public function purge_ballots(WP_REST_Request $request) {
@@ -297,3 +348,7 @@ class TM_Contest_REST_Controller extends WP_REST_Controller {
 
 
 
+
+### 📦 **Plugin folder structure with autoloading**  
+
+Just tell me what you want to build next.
